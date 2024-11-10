@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>D3 Gantt Chart</title>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style>
+        .bar {
+            fill: steelblue;
+            stroke: none;
+        }
+        .bar:hover {
+            fill: lightsteelblue;
+            stroke: orange;
+            stroke-width: 2px;
+        }
+        .axis text {
+            font: 10px sans-serif;
+        }
+        .row-bg {
+            fill: none;
+            stroke: lightgray;
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            width: 120px;
+            height: 28px;
+            padding: 2px;
+            font: 12px sans-serif;
+            background: lightsteelblue;
+            border: 0px;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+        .current-date {
+            text-align: center;
+            font-size: 20px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .nav-button {
+            cursor: pointer;
+            font-size: 24px;
+            margin: 0 10px;
+        }
+        #datePicker {
+            margin-left: 10px;
+            font-size: 18px;
+            height: 40px;
+        }
+        .day-label {
+            font-size: 12px;
+            text-anchor: middle;
+        }
+    </style>
+</head>
+<body>
+    <div class="current-date" id="currentDate">
+        <span class="nav-button" onclick="changeDay(-1)">&#9664;</span>
+        <input type="date" id="datePicker" onchange="selectDate()">
+        <span class="nav-button" onclick="changeDay(1)">&#9654;</span>
+    </div>
+    
+    <svg id="chart" width="100%" height="500"></svg>
+
+    <script>
+        var margin = {top: 50, right: 20, bottom: 30, left: 100},
+            width = window.innerWidth - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+        var x = d3.scaleTime().range([0, width]),
+            y = d3.scaleBand().range([height, 0]).padding(0.1);
+
+        var svg = d3.select("#chart")
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var xAxis = d3.axisBottom(x)
+            .ticks(d3.timeDay.every(1))  // Only show ticks for whole days
+            .tickFormat(d3.timeFormat("%d %b"));
+        var yAxis = d3.axisLeft(y).tickSize(0);
+
+        var data;
+        var currentDay = new Date();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById("datePicker").value = d3.timeFormat("%Y-%m-%d")(currentDay);
+        });
+
+        var color = d3.scaleOrdinal(d3.schemeCategory10);
+        var div = d3.select("body").append("div").attr("class", "tooltip").style("opacity", 0);
+
+        d3.csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vT4-N90ix_krBo8W3AAdcmUfGizjpBKNMQXhHSOKpEg3kZngWgz1F57nl5gXRAPHiK-MUMPTHH55ehS/pub?output=csv").then(function(contents) {
+            data = contents.map(function(d) {
+                return {
+                    id: d['Event ID'] + '-' + d['Item SKU'],
+                    name: d['Item SKU'],
+                    start: new Date(d['Start Date']),
+                    end: d['End Date'] ? new Date(d['End Date']) : null  // Handle missing end dates
+                };
+            });
+            drawChart(data);
+        });
+
+        function drawChart(data) {
+            svg.selectAll("*").remove();
+
+            // Get the selected date from the date picker
+            var selectedDate = new Date(document.getElementById("datePicker").value);
+
+            // Filter data: only show entries where the start date is after the selected date
+            var filteredData = data.filter(d => {
+                // Show items where:
+                // 1. Start date is after the selected date.
+                // 2. Or the item has no end date or the end date is in the future.
+                return (d.start > selectedDate) || (d.end === null || d.end >= selectedDate);
+            });
+
+            // If there are no entries to show, display a message
+            if (filteredData.length === 0) {
+                svg.append("text").attr("x", width / 2).attr("y", height / 2).attr("text-anchor", "middle").text("No entries after the selected date.").style("font-size", "16px");
+                return;
+            }
+
+            var startDate = new Date(Math.min(...filteredData.map(d => d.start)));
+            var endDate = new Date(Math.max(...filteredData.map(d => d.end || currentDay)));  // Include ongoing entries
+
+            if (endDate.getHours() >= 12) {
+                endDate.setHours(23, 59, 59, 999);
+            } else {
+                endDate.setHours(11, 59, 59, 999);
+            }
+
+            x.domain([startDate, endDate]);
+            y.domain(filteredData.map(d => d.id));
+
+            svg.append("g").attr("transform", "translate(0," + height + ")").call(xAxis).call(g => g.select(".domain").remove());
+            svg.append("g").call(yAxis).call(g => g.select(".domain").remove());
+
+            // Add day labels (Mon-Sun) at the top of the chart
+            for (let dt = new Date(startDate); dt <= endDate; dt.setDate(dt.getDate() + 1)) {
+                svg.append("text")
+                    .attr("class", "day-label")
+                    .attr("x", x(dt) + (x(new Date(dt.getTime() + 1 * 24 * 60 * 60 * 1000)) - x(dt)) / 2)
+                    .attr("y", -10) // Position above the chart
+                    .text(d3.timeFormat("%a")(dt)); // Abbreviated day name
+            }
+
+            svg.selectAll(".row-bg")
+                .data(y.domain())
+                .enter().append("rect")
+                .attr("class", "row-bg")
+                .attr("x", 0)
+                .attr("y", (d, i) => y(d))
+                .attr("width", width)
+                .attr("height", y.bandwidth())
+                .attr("fill", (d, i) => i % 2 ? "#eee" : "#fff");
+
+            svg.selectAll(".bar")
+                .data(filteredData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d.start))
+                .attr("y", d => y(d.id))
+                .attr("width", d => x(d.end || new Date()) - x(d.start))  // Include ongoing entries
+                .attr("height", y.bandwidth())
+                .attr("rx", 5)
+                .attr("fill", d => color(d.name))
+                .on("mouseover", function(event, d) {      
+                    div.transition().duration(200).style("opacity", .9);      
+                    div.html(d.name + "<br/>" + d3.timeFormat("%Y-%m-%d")(d.start) + " to " + (d.end ? d3.timeFormat("%Y-%m-%d")(d.end) : "ongoing"))  
+                        .style("left", (event.pageX) + "px")     
+                        .style("top", (event.pageY - 28) + "px");    
+                })                  
+                .on("mouseout", function(d) {       
+                    div.transition().duration(500).style("opacity", 0);   
+                });
+
+            // Draw vertical grid lines for each day and highlight weekends
+            for (let dt = startDate; dt <= endDate; dt.setDate(dt.getDate() + 1)) {
+                svg.append("line")
+                    .attr("x1", x(new Date(dt)))
+                    .attr("y1", 0)
+                    .attr("x2", x(new Date(dt)))
+                    .attr("y2", height)
+                    .attr("stroke", "lightgray")
+                    .attr("stroke-width", 1)
+                    .attr("stroke-dasharray", "2,2"); // Dotted line for each day
+
+                // Highlight weekends
+                if (dt.getDay() === 0 || dt.getDay() === 6) { // Sunday or Saturday
+                    svg.append("rect")
+                        .attr("x", x(new Date(dt)))
+                        .attr("y", 0)
+                        .attr("width", x(new Date(dt.getTime() + 1 * 24 * 60 * 60 * 1000)) - x(new Date(dt)))
+                        .attr("height", height)
+                        .attr("fill", "rgba(255, 223, 186, 0.5)"); // Light color for weekends
+                }
+            }
+        }
+
+        function changeDay(direction) {
+            currentDay.setDate(currentDay.getDate() + direction);
+            document.getElementById("datePicker").value = d3.timeFormat("%Y-%m-%d")(currentDay);
+            drawChart(data);
+        }
+
+        function selectDate() {
+            drawChart(data);
+        }
+    </script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>D3 Gantt Chart</title>
+    <title>CTRL Gantt</title>
     <script src="https://d3js.org/d3.v5.min.js"></script>
     <style>
         .bar {
@@ -54,6 +54,11 @@
             font-size: 12px;
             text-anchor: middle;
         }
+        .date-label {
+            font-size: 12px;
+            text-anchor: middle;
+            fill: black; /* Set color for day of month labels */
+        }
         #chartContainer {
             height: 500px; /* Set a fixed height for the chart container */
             overflow-y: auto; /* Enable vertical scrolling */
@@ -77,16 +82,16 @@
     </div>
     
     <div id="chartContainer">
-        <svg id="chart" width="100%" height="800"></svg> <!-- Increased height for better visibility -->
+        <svg id="chart" width="100%" height="800"></svg>
     </div>
 
     <script>
-        var margin = {top: 50, right: 20, bottom: 30, left: 100},
+        var margin = {top: 70, right: 20, bottom: 30, left: 100},
             width = window.innerWidth - margin.left - margin.right,
-            height = 800 - margin.top - margin.bottom; // Increased height
+            height = 800 - margin.top - margin.bottom;
 
         var x = d3.scaleTime().range([0, width]),
-            y = d3.scaleBand().range([0, height]).padding(0.2); // Increased padding for better row height
+            y = d3.scaleBand().range([0, height]).padding(0.2);
 
         var svg = d3.select("#chart")
             .append("g")
@@ -104,14 +109,12 @@
             document.getElementById("datePicker").value = d3.timeFormat("%Y-%m-%d")(currentDay);
         });
 
-        var color;  // Declare color scale here
+        var color;
         var div = d3.select("body").append("div").attr("class", "tooltip").style("opacity", 0);
 
-        // Fetch the CSV data
         d3.csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vT4-N90ix_krBo8W3AAdcmUfGizjpBKNMQXhHSOKpEg3kZngWgz1F57nl5gXRAPHiK-MUMPTHH55ehS/pub?output=csv").then(function(contents) {
-            // Create a time parser for different date formats
-            var parseTime = d3.timeParse("%m/%d/%Y %H:%M"); // Example: 10/19/2024 8:00
-            var parseTimeWithAMPM = d3.timeParse("%m/%d/%Y %I:%M %p"); // Example: 10/19/2024 8:00 AM
+            var parseTime = d3.timeParse("%m/%d/%Y %H:%M");
+            var parseTimeWithAMPM = d3.timeParse("%m/%d/%Y %I:%M %p");
 
             data = contents.map(function(d) {
                 return {
@@ -142,12 +145,10 @@
             var endDate = new Date(selectedDate);
             endDate.setDate(endDate.getDate() + daysAhead);
 
-            // Filter data based on selected date
             var filteredData = dataToDisplay.filter(d => {
                 return (d.start && d.start > selectedDate) || (d.end && d.end >= selectedDate);
             });
 
-            // If there are no entries to show, display a message
             if (filteredData.length === 0) {
                 svg.append("text").attr("x", width / 2).attr("y", height / 2).attr("text-anchor", "middle").text("No entries after the selected date.").style("font-size", "16px");
                 return;
@@ -162,12 +163,21 @@
             svg.append("g").attr("transform", "translate(0," + height + ")").call(xAxis).call(g => g.select(".domain").remove());
             svg.append("g").call(yAxis).call(g => g.select(".domain").remove());
 
+            // Add day of month labels (1-31) above the day of week labels
+            for (let dt = new Date(startDate); dt <= adjustedEndDate; dt.setDate(dt.getDate() + 1)) {
+                svg.append("text")
+                    .attr("class", "date-label")
+                    .attr("x", x(dt) + (x(new Date(dt.getTime() + 1 * 24 * 60 * 60 * 1000)) - x(dt)) / 2)
+                    .attr("y", -20) // Position higher above the day labels
+                    .text(d3.timeFormat("%d")(dt)); // Day of the month
+            }
+
             // Add day labels (Mon-Sun) at the top of the chart
             for (let dt = new Date(startDate); dt <= adjustedEndDate; dt.setDate(dt.getDate() + 1)) {
                 svg.append("text")
                     .attr("class", "day-label")
                     .attr("x", x(dt) + (x(new Date(dt.getTime() + 1 * 24 * 60 * 60 * 1000)) - x(dt)) / 2)
-                    .attr("y", -10)
+                    .attr("y", 0) // Position just below the day of month labels
                     .text(d3.timeFormat("%a")(dt)); // Abbreviated day name
             }
 
@@ -181,7 +191,6 @@
                 .attr("height", y.bandwidth())
                 .attr("fill", (d, i) => i % 2 ? "#eee" : "#fff");
 
-            // Draw bars and color them based on 'Event ID'
             svg.selectAll(".bar")
                 .data(filteredData)
                 .enter().append("rect")
@@ -199,8 +208,8 @@
                         `End Date: ${d.end ? d3.timeFormat("%B %d, %I:%M %p")(d.end) : "Ongoing"}<br/>` + 
                         `Event ID: ${d.id}`
                     )
-                    .style("left", (event.pageX + 5) + "px") // Offset tooltip position slightly
-                    .style("top", (event.pageY - 40) + "px"); // Position above the cursor
+                    .style("left", (event.pageX + 5) + "px")
+                    .style("top", (event.pageY - 40) + "px");
                 })
                 .on("mouseout", function(d) {
                     div.transition().duration(500).style("opacity", 0);
